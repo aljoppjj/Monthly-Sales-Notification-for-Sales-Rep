@@ -79,7 +79,7 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
                     salesRepId = soFields.salesrep[0].value;
                 }
                 
-                // Get customer ID and lookup customer email and sales rep
+                // Get customer ID and lookup customer email
                 let customerEmail = 'No Email';
                 let customerName = 'Unknown';
                 
@@ -90,17 +90,11 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
                     const customerFields = search.lookupFields({
                         type: search.Type.CUSTOMER,
                         id: customerId,
-                        columns: ['email', 'salesrep']
+                        columns: ['email']
                     });
                     
                     if (customerFields.email) {
                         customerEmail = customerFields.email;
-                    }
-                    
-                    // If sales order doesn't have a sales rep, use customer's sales rep
-                    if (salesRepId === 'Unassigned' && customerFields.salesrep && customerFields.salesrep.length > 0) {
-                        salesRepId = customerFields.salesrep[0].value;
-                        log.debug('Using Customer SalesRep', `Customer: ${customerName}, SalesRep: ${salesRepId}`);
                     }
                 }
                 
@@ -167,7 +161,7 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
                         body: body,
                         attachments: [file.load({ id: fileId })]
                     });
-                    log.audit('Email Sent', isUnassigned ? 'To admin' : `To sales rep`);
+                    log.audit('Email Sent', isUnassigned ? 'To admin' : `To sales rep ${salesRepId}`);
                 } catch (e) {
                     log.audit('Email Skipped', `Sales rep ${salesRepId} has no email or cannot receive messages.`);
                 }
