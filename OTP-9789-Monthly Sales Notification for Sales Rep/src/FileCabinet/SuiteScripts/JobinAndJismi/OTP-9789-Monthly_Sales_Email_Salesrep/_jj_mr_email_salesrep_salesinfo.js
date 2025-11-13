@@ -16,7 +16,6 @@
  * REVISION HISTORY
  *
  * @version 1.0 : 31-October-2025 : Initial build created by JJ0417
- * @version 1.1 : 12-November-2025 : Fixed customer email and sales rep issues
  *
  *********************************************************************************/
 
