@@ -44,7 +44,7 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
                         search.createColumn({ name: 'entity' }),
                         search.createColumn({ name: 'email', join: 'customer' }),
                         search.createColumn({ name: 'amount' }),
-                        search.createColumn({ name: 'salesrep', join: 'customerMain' })
+                        search.createColumn({ name: 'salesrep'})
                     ]
                 });
 
@@ -67,7 +67,7 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
                 let customerEmail = data['email.customer'] || 'No Email';
                 const docNumber = data.tranid || '';
                 const amount = data.amount || '0.00';
-                const salesRepId = data['salesrep.customerMain'] ? data['salesrep.customerMain'].value : 'Unassigned';
+                const salesRepId = data['salesrep'] ? data['salesrep'].value : 'Unassigned';
 
                 if (customerName.includes(',')) customerName = `"${customerName}"`;
                 if (customerEmail.includes(',')) customerEmail = `"${customerEmail}"`;
