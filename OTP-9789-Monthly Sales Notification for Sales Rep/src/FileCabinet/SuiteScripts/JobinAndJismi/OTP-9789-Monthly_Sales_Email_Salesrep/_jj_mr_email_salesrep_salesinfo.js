@@ -40,11 +40,11 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
                         ['customer.isinactive', 'is', 'F']
                     ],
                     columns: [
-                        { name: 'tranid' },
-                        { name: 'entity' },
-                        { name: 'email', join: 'customer' },
-                        { name: 'amount' },
-                        { name: 'salesrep' }
+                        search.createColumn({ name: 'tranid' }),
+                        search.createColumn({ name: 'entity' }),
+                        search.createColumn({ name: 'email', join: 'customer' }),
+                        search.createColumn({ name: 'amount' }),
+                        search.createColumn({ name: 'salesrep', join: 'customerMain' })
                     ]
                 });
 
@@ -62,61 +62,17 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
          */
         function map(context) {
             try {
-                const searchResult = JSON.parse(context.value);
-                const transactionId = searchResult.id;
-                const data = searchResult.values;
-                
-                // Use lookup to get sales rep from the sales order
-                const soFields = search.lookupFields({
-                    type: search.Type.SALES_ORDER,
-                    id: transactionId,
-                    columns: ['salesrep', 'entity']
-                });
-                
-                let salesRepId = 'Unassigned';
-                if (soFields.salesrep && soFields.salesrep.length > 0) {
-                    salesRepId = soFields.salesrep[0].value;
-                }
-                
-                // Get customer ID and lookup customer email and sales rep
-                let customerEmail = 'No Email';
-                let customerName = 'Unknown';
-                
-                if (soFields.entity && soFields.entity.length > 0) {
-                    const customerId = soFields.entity[0].value;
-                    customerName = soFields.entity[0].text;
-                    
-                    const customerFields = search.lookupFields({
-                        type: search.Type.CUSTOMER,
-                        id: customerId,
-                        columns: ['email', 'salesrep']
-                    });
-                    
-                    if (customerFields.email) {
-                        customerEmail = customerFields.email;
-                    }
-                    
-                    // If sales order doesn't have a sales rep, use customer's sales rep
-                    if (salesRepId === 'Unassigned' && customerFields.salesrep && customerFields.salesrep.length > 0) {
-                        salesRepId = customerFields.salesrep[0].value;
-                        log.debug('Using Customer SalesRep', `Customer: ${customerName}, SalesRep: ${salesRepId}`);
-                    }
-                }
-                
-                const docNumber = data.tranid || 'Null';
+                const data = JSON.parse(context.value).values;
+                let customerName = data.entity ? data.entity.text : 'Unknown';
+                let customerEmail = data['email.customer'] || 'No Email';
+                const docNumber = data.tranid || '';
                 const amount = data.amount || '0.00';
+                const salesRepId = data['salesrep.customerMain'] ? data['salesrep.customerMain'].value : 'Unassigned';
 
-                if (customerName.includes(',')) {
-                    customerName = `"${customerName}"`;
-                }
-                if (customerEmail.includes(',')) {
-                    customerEmail = `"${customerEmail}"`;
-                }
+                if (customerName.includes(',')) customerName = `"${customerName}"`;
+                if (customerEmail.includes(',')) customerEmail = `"${customerEmail}"`;
 
                 const csvLine = `${customerName},${customerEmail},${docNumber},${amount}`;
-                
-                log.debug('Map Processing', `SalesRep: ${salesRepId}, Customer: ${customerName}, Email: ${customerEmail}`);
-                
                 context.write({ key: salesRepId, value: csvLine });
 
             } catch (e) {
@@ -134,41 +90,52 @@ define(['N/email', 'N/file', 'N/log', 'N/search'],
             try {
                 const salesRepId = context.key;
                 const allLines = context.values;
-
-                const today = new Date();
-                const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1);
-                const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-                const monthName = monthNames[lastMonth.getMonth()];
+                const isUnassigned = salesRepId === 'Unassigned';
 
                 const csvContent = 'Customer Name,Customer Email,Sales Order Document Number,Sales Amount\n' + allLines.join('\n');
-
                 const csvFile = file.create({
-                    name: `Sales_Report_${salesRepId}_${monthName}.csv`,
+                    name: `Sales_Report_${salesRepId}.csv`,
                     fileType: file.Type.CSV,
                     contents: csvContent,
                     folder: 1227
                 });
-                
                 const fileId = csvFile.save();
 
-                const isUnassigned = salesRepId === 'Unassigned';
-                const recipient = isUnassigned ? -5 : salesRepId;
-                const subject = isUnassigned ? `Unassigned Sales - ${monthName}` : `Your Sales Report - ${monthName}`;
+                const senderName = search.lookupFields({
+                    type: search.Type.EMPLOYEE,
+                    id: -5,
+                    columns: ['entityid']
+                }).entityid || 'NetSuite Admin';
+                
+                let receiverName = 'Admin';
+                if (!isUnassigned) {
+                    try {
+                        receiverName = search.lookupFields({
+                            type: search.Type.EMPLOYEE,
+                            id: salesRepId,
+                            columns: ['entityid']
+                        }).entityid || 'Sales Representative';
+                    } catch (e) {
+                        receiverName = 'Sales Representative';
+                    }
+                }
+                
+                const subject = isUnassigned ? 'Unassigned Sales Report' : 'Your Sales Report';
                 const body = isUnassigned 
-                    ? 'Hi,\n\nPlease assign sales reps to these customers.\n\nSee attached CSV.\n\nThank you.'
-                    : `Hi,\n\nYour monthly sales report for ${monthName} is attached.\n\nThank you.`;
+                    ? `Dear ${receiverName},\n\nPlease find attached the sales report containing customers without assigned sales representatives.\n\nKindly review and assign sales representatives to these customers.\n\nBest regards,\n${senderName}`
+                    : `Dear ${receiverName},\n\nPlease find attached your monthly sales report.\n\nBest regards,\n${senderName}`;
 
                 try {
                     email.send({
                         author: -5,
-                        recipients: recipient,
+                        recipients: isUnassigned ? -5 : salesRepId,
                         subject: subject,
                         body: body,
                         attachments: [file.load({ id: fileId })]
                     });
                     log.audit('Email Sent', isUnassigned ? 'To admin' : `To sales rep`);
                 } catch (e) {
-                    log.audit('Email Skipped', `Sales rep ${salesRepId} has no email or cannot receive messages.`);
+                    log.audit('Email Skipped', `Sales rep has no email`);
                 }
 
             } catch (e) {
